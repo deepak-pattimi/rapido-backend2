@@ -9,14 +9,14 @@ const customerSchema = new mongoose.Schema({
     },
     email: {
         type: String,
-        required: true,
-        unique: true,
+        required: false,
+        sparse: true,
         lowercase: true,
         trim: true
     },
     password: {
         type: String,
-        required: true
+        required: false
     },
     name: { 
         type: String, 

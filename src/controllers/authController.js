@@ -12,23 +12,29 @@ exports.requestOTP = async (req, res) => {
     const { phone } = req.body;
     if (!phone) return res.status(400).json({ error: "Phone number required" });
 
+    let cleanPhone = phone.toString().trim();
+    if (!cleanPhone.startsWith("+91") && cleanPhone.replace(/[^\d]/g, '').length === 10) {
+      cleanPhone = `+91${cleanPhone.replace(/[^\d]/g, '')}`;
+    }
+
     const generatedOtp = Math.floor(1000 + Math.random() * 9000).toString();
 
     // Save to DB
     await Otp.findOneAndUpdate(
-      { phone },
+      { phone: cleanPhone },
       { otp: generatedOtp, expiresAt: new Date() },
-      { upsert: true },
+      { upsert: true, new: true },
     );
 
-    // 🚀 FIRE THE ACTUAL SMS
-    await sendSMS(phone, generatedOtp);
+    // 🚀 FIRE THE ACTUAL SMS VIA EXOTEL
+    await sendSMS(cleanPhone, generatedOtp);
 
-    res.status(200).json({ success: true, message: "OTP sent to your phone" });
+    res.status(200).json({ success: true, message: "OTP sent successfully" });
   } catch (error) {
+    console.error("requestOTP error:", error);
     res
       .status(500)
-      .json({ error: "Could not send OTP. Check your gateway balance." });
+      .json({ error: error.message || "Could not send OTP. Check Exotel gateway." });
   }
 };
 
@@ -36,27 +42,38 @@ exports.requestOTP = async (req, res) => {
 exports.verifyOTP = async (req, res) => {
   try {
     const { phone, otp } = req.body;
+    if (!phone || !otp) {
+      return res.status(400).json({ error: "Phone and OTP are required" });
+    }
 
-    // Find the OTP in our temp collection
-    const otpRecord = await Otp.findOne({ phone, otp });
+    let cleanPhone = phone.toString().trim();
+    const rawDigits = cleanPhone.replace(/[^\d]/g, '');
+    const tenDigits = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
+    const phoneVariants = [
+      cleanPhone,
+      `+91${tenDigits}`,
+      tenDigits
+    ];
+
+    // Find the OTP in our temp collection matching any phone variant
+    const otpRecord = await Otp.findOne({ phone: { $in: phoneVariants }, otp: otp.toString().trim() });
 
     if (!otpRecord) {
-      return res.status(400).json({ error: "Invalid or expired OTP" });
+      return res.status(400).json({ error: "Invalid or expired OTP. Please try again." });
     }
 
     // OTP is correct! Now find or create the Customer
+    const formattedPhone = `+91${tenDigits}`;
     let isNew = false;
-    let customer = await Customer.findOne({ phone });
+    let customer = await Customer.findOne({ phone: { $in: phoneVariants } });
 
     if (!customer) {
       isNew = true;
       customer = await Customer.create({
-        phone,
-        name: "Rapido User", // Default name
+        phone: formattedPhone,
+        name: "Rapido Rider",
         walletBalance: 0,
       });
-    } else if (customer.name === "Rapido User") {
-      isNew = true;
     }
 
     // Delete the used OTP record
@@ -67,16 +84,17 @@ exports.verifyOTP = async (req, res) => {
     const token = jwt.sign(
       { id: customer._id, role: "CUSTOMER" },
       secretKey,
-      { expiresIn: "30d" }, // Stay logged in for 30 days
+      { expiresIn: "30d" },
     );
 
     res.status(200).json({
       success: true,
       token,
-      user: { id: customer._id, phone: customer.phone, name: customer.name },
+      user: { id: customer._id, phone: customer.phone, name: customer.name, email: customer.email || "" },
       isNew,
     });
   } catch (error) {
+    console.error("verifyOTP error:", error);
     res.status(500).json({ error: error.message });
   }
 };
