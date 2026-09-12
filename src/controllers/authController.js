@@ -17,7 +17,14 @@ exports.requestOTP = async (req, res) => {
       cleanPhone = `+91${cleanPhone.replace(/[^\d]/g, '')}`;
     }
 
-    const generatedOtp = Math.floor(1000 + Math.random() * 9000).toString();
+    let generatedOtp = Math.floor(1000 + Math.random() * 9000).toString();
+
+    // Play Store Reviewer Demo Account Bypass
+    const rawDigits = cleanPhone.replace(/[^\d]/g, '');
+    const tenDigits = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
+    if (tenDigits === '9999999999' || tenDigits === '9876543210') {
+      generatedOtp = '1234';
+    }
 
     // Save to DB
     await Otp.findOneAndUpdate(
@@ -26,8 +33,10 @@ exports.requestOTP = async (req, res) => {
       { upsert: true, new: true },
     );
 
-    // 🚀 FIRE THE ACTUAL SMS VIA EXOTEL
-    await sendSMS(cleanPhone, generatedOtp);
+    // Skip sending SMS for demo test account
+    if (tenDigits !== '9999999999' && tenDigits !== '9876543210') {
+      await sendSMS(cleanPhone, generatedOtp);
+    }
 
     res.status(200).json({ success: true, message: "OTP sent successfully" });
   } catch (error) {
@@ -71,7 +80,7 @@ exports.verifyOTP = async (req, res) => {
       isNew = true;
       customer = await Customer.create({
         phone: formattedPhone,
-        name: "Rapido Rider",
+        name: "Rider",
         walletBalance: 0,
       });
     }

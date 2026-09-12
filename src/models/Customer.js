@@ -21,7 +21,7 @@ const customerSchema = new mongoose.Schema({
     },
     name: { 
         type: String, 
-        default: "Rapido Rider",
+        default: "Rider",
         trim: true
     },
     pushToken: { 
