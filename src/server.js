@@ -27,7 +27,7 @@ const server = http.createServer(app);
 // 🟢 Initialize Socket.io
 const io = new Server(server, {
   cors: {
-    origin: "*", 
+    origin: "*",
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
   }
 });
@@ -78,7 +78,7 @@ const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 2000, // Increased limit: polling apps make many requests
   handler: (req, res, next, options) => {
-      res.status(options.statusCode).json({ success: false, error: options.message });
+    res.status(options.statusCode).json({ success: false, error: options.message });
   },
   message: "Too many requests from this IP, please try again after 15 minutes",
 });
@@ -89,7 +89,7 @@ connectDB();
 app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
-    message: "Rapido Backend is Live",
+    message: "INryde Backend is Live",
   });
 });
 
@@ -109,7 +109,7 @@ app.use(errorHandler);
 cron.schedule("* * * * *", async () => {
   try {
     const tenMinsFromNow = new Date(Date.now() + 10 * 60 * 1000);
-    
+
     // Find rides that are SCHEDULED and whose time is <= 10 mins from now
     const ridesToRelease = await Ride.find({
       status: "SCHEDULED",
