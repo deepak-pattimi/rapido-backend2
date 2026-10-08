@@ -9,6 +9,7 @@ const {
   getDrivers,
   getDriver,
   updateDriver,
+  deleteDriver,
   getDriverRides,
   getLogs,
 } = require("../controllers/adminController");
@@ -23,6 +24,7 @@ router.get("/customers/:id/rides", getCustomerRides);
 router.get("/drivers", getDrivers);
 router.get("/drivers/:id", getDriver);
 router.patch("/drivers/:id", updateDriver);
+router.delete("/drivers/:id", deleteDriver);
 router.get("/drivers/:id/rides", getDriverRides);
 router.get("/logs", getLogs);
 

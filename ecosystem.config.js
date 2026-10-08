@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "rapido-backend",
+      name: "inryde-backend",
       script: "./src/server.js",
       instances: "max", // Scale across all available CPU cores
       exec_mode: "cluster", // Enable cluster load-balancing

@@ -1,6 +1,7 @@
 const Customer = require("../models/Customer");
 const Driver = require("../models/Driver");
 const Ride = require("../models/Ride");
+const Otp = require("../models/Otp");
 
 const normalizeCustomer = (customer) => ({
   id: customer._id,
@@ -47,8 +48,81 @@ exports.getCustomers = async (req, res) => {
 exports.deleteCustomer = async (req, res) => {
   try {
     const { id } = req.params;
+    const customer = await Customer.findById(id);
+    if (!customer) {
+      return res.status(404).json({ success: false, error: "Customer not found" });
+    }
+
+    const phone = customer.phone;
+
+    // Cancel any active rides
+    try {
+      await Ride.updateMany(
+        { 
+          customerId: id, 
+          status: { $in: ['SEARCHING', 'PENDING', 'ACCEPTED', 'ARRIVED', 'IN_PROGRESS'] } 
+        },
+        { 
+          status: 'CANCELLED', 
+          cancellationReason: 'Customer account deleted by admin' 
+        }
+      );
+    } catch (e) {
+      console.error("Error cancelling customer rides:", e);
+    }
+
+    // Clean up OTPs
+    if (phone) {
+      try {
+        await Otp.deleteMany({ phone });
+      } catch (e) {
+        console.error("Error deleting customer OTPs:", e);
+      }
+    }
+
     await Customer.findByIdAndDelete(id);
-    res.json({ success: true });
+    res.json({ success: true, message: "Customer account deleted successfully." });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+exports.deleteDriver = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const driver = await Driver.findById(id);
+    if (!driver) {
+      return res.status(404).json({ success: false, error: "Driver not found" });
+    }
+
+    const phone = driver.phone;
+
+    // Cancel active rides
+    try {
+      await Ride.updateMany(
+        { 
+          driverId: id, 
+          status: { $in: ['ACCEPTED', 'ARRIVED', 'IN_PROGRESS'] } 
+        },
+        { 
+          status: 'CANCELLED', 
+          cancellationReason: 'Driver account deleted by admin' 
+        }
+      );
+    } catch (e) {
+      console.error("Error cancelling driver rides:", e);
+    }
+
+    if (phone) {
+      try {
+        await Otp.deleteMany({ phone });
+      } catch (e) {
+        console.error("Error deleting driver OTPs:", e);
+      }
+    }
+
+    await Driver.findByIdAndDelete(id);
+    res.json({ success: true, message: "Driver account deleted successfully." });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

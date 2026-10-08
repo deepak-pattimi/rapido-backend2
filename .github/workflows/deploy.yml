@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - master
+      - main
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -21,8 +23,46 @@ jobs:
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           port: ${{ secrets.HOSTINGER_PORT || 22 }}
           script: |
-            cd /var/www/inryde-backend/rapido-backend2
-            git pull origin master
+            # 1. Load shell environment & paths (nvm, node, npm, pm2)
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            [ -s "$HOME/.bashrc" ] && source "$HOME/.bashrc"
+            [ -s "$HOME/.profile" ] && source "$HOME/.profile"
+            export PATH=$PATH:/usr/local/bin:/usr/bin:/bin:$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node 2>/dev/null | tail -n 1)/bin
+
+            echo "=== Checking Node and PM2 Environment ==="
+            which node || true
+            which pm2 || true
+            node -v || true
+
+            # 2. Locate and enter backend project directory
+            if [ -d "/var/www/inryde-backend/rapido-backend2" ]; then
+              cd /var/www/inryde-backend/rapido-backend2
+            elif [ -d "/var/www/inryde-backend" ]; then
+              cd /var/www/inryde-backend
+            elif [ -d "$HOME/rapido-backend2" ]; then
+              cd "$HOME/rapido-backend2"
+            else
+              echo "Error: Backend directory not found!"
+              exit 1
+            fi
+
+            echo "=== Working in directory: $(pwd) ==="
+
+            # 3. Pull latest changes safely from GitHub
+            git fetch origin master
+            git reset --hard origin/master
+
+            # 4. Install dependencies
             npm install --omit=dev
-            pm2 restart inryde-backend || pm2 start src/server.js --name "inryde-backend"
+
+            # 5. Reload or start PM2 process
+            pm2 reload ecosystem.config.js --env production || \
+            pm2 restart inryde-backend || \
+            pm2 restart rapido-backend || \
+            pm2 start ecosystem.config.js --env production || \
+            pm2 start src/server.js --name "inryde-backend"
+
+            # 6. Save PM2 list
             pm2 save
+            echo "=== Backend successfully updated and restarted! ==="
