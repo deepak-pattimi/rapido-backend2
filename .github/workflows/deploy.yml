@@ -21,7 +21,7 @@ jobs:
           host: ${{ secrets.HOSTINGER_HOST }}
           username: ${{ secrets.HOSTINGER_USER }}
           password: ${{ secrets.HOSTINGER_PASSWORD }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY || '' }}
           port: ${{ secrets.HOSTINGER_PORT || 22 }}
           script: |
             # 1. Load shell environment & paths (nvm, node, npm, pm2)
