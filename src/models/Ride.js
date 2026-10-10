@@ -99,6 +99,21 @@ const rideSchema = new mongoose.Schema(
     // 🔐 One-time OTP for driver pickup verification
     otp: { type: String, default: "" },
 
+    // 💳 Payment details
+    paymentMethod: {
+      type: String,
+      enum: ["CASH", "ONLINE"],
+      default: "CASH",
+    },
+    paymentStatus: {
+      type: String,
+      enum: ["PENDING", "PAID"],
+      default: "PENDING",
+    },
+    razorpayOrderId: { type: String, default: "" },
+    razorpayPaymentId: { type: String, default: "" },
+    razorpaySignature: { type: String, default: "" },
+
     // ⭐ Reviews
     isReviewed: { type: Boolean, default: false },
     customerRating: { type: Number },

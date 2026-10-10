@@ -18,6 +18,7 @@ const rideRoutes = require("./routes/rideRoutes");
 const customerRoutes = require("./routes/customerRoutes");
 const driverRoutes = require("./routes/driverRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
 
 const app = express();
 
@@ -99,6 +100,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/customer", customerRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/payments", paymentRoutes);
 
 // 🟢 Global Error Handler
 app.use(errorHandler);
