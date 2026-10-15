@@ -2,6 +2,8 @@ const Customer = require("../models/Customer");
 const Driver = require("../models/Driver");
 const Ride = require("../models/Ride");
 const Otp = require("../models/Otp");
+const Notification = require("../models/Notification");
+const { sendBroadcastNotification } = require("../services/pushService");
 
 const normalizeCustomer = (customer) => ({
   id: customer._id,
@@ -259,3 +261,137 @@ exports.getLogs = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
+// 🔔 Notifications Controller Methods
+exports.getNotifications = async (req, res) => {
+  try {
+    const notifications = await Notification.find().sort({ createdAt: -1 }).limit(100);
+    res.json({ success: true, notifications });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+exports.sendCustomNotification = async (req, res) => {
+  try {
+    const {
+      title,
+      message,
+      target = "ALL",
+      category = "FESTIVAL_OFFER",
+      discountCode = "",
+      discountPercent = 0,
+      actionUrl = "",
+    } = req.body;
+
+    if (!title || !message) {
+      return res.status(400).json({ success: false, error: "Title and message are required." });
+    }
+
+    // 1. Send push notifications via Expo SDK
+    let pushResult = { totalRecipients: 0, successCount: 0, failureCount: 0 };
+    try {
+      pushResult = await sendBroadcastNotification({
+        title,
+        message,
+        target,
+        category,
+        discountCode,
+        discountPercent: Number(discountPercent) || 0,
+        actionUrl,
+      });
+    } catch (pushErr) {
+      console.error("Warning: Push broadcast failed partially:", pushErr.message);
+    }
+
+    // 2. Broadcast via WebSockets (if connected clients)
+    try {
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("admin_broadcast_notification", {
+          title,
+          message,
+          target,
+          category,
+          discountCode,
+          discountPercent,
+          actionUrl,
+          timestamp: new Date(),
+        });
+      }
+    } catch (sockErr) {
+      console.error("Warning: Socket broadcast failed:", sockErr.message);
+    }
+
+    // 3. Save notification record in database
+    const notification = await Notification.create({
+      title,
+      message,
+      target,
+      category,
+      discountCode,
+      discountPercent: Number(discountPercent) || 0,
+      actionUrl,
+      recipientCount: pushResult.totalRecipients,
+      successCount: pushResult.successCount,
+      failureCount: pushResult.failureCount,
+      status: "SENT",
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Notification broadcast sent to ${pushResult.totalRecipients} recipients!`,
+      notification,
+      stats: pushResult,
+    });
+  } catch (error) {
+    console.error("Error sending custom notification:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+exports.deleteNotification = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await Notification.findByIdAndDelete(id);
+    res.json({ success: true, message: "Notification deleted successfully." });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+exports.getAudienceStats = async (req, res) => {
+  try {
+    const totalCustomers = await Customer.countDocuments();
+    const pushReadyCustomers = await Customer.countDocuments({
+      pushToken: { $ne: "", $exists: true },
+    });
+
+    const totalDrivers = await Driver.countDocuments();
+    const approvedDrivers = await Driver.countDocuments({ status: "APPROVED" });
+    const pushReadyDrivers = await Driver.countDocuments({
+      status: "APPROVED",
+      pushToken: { $ne: "", $exists: true },
+    });
+    const onlineDrivers = await Driver.countDocuments({ isOnline: true });
+
+    const totalCampaigns = await Notification.countDocuments();
+
+    res.json({
+      success: true,
+      stats: {
+        totalCustomers,
+        pushReadyCustomers,
+        totalDrivers,
+        approvedDrivers,
+        pushReadyDrivers,
+        onlineDrivers,
+        totalCampaigns,
+        totalReach: pushReadyCustomers + pushReadyDrivers,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+

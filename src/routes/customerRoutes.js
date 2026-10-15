@@ -7,7 +7,8 @@ const {
   deleteAccount,
   getSavedPlaces, 
   addSavedPlace, 
-  deleteSavedPlace 
+  deleteSavedPlace,
+  getCustomerNotifications,
 } = require('../controllers/customerController');
 
 router.get('/profile', verifyToken, getProfile);
@@ -16,6 +17,9 @@ router.put('/profile/update', verifyToken, updateProfile); // for backwards comp
 router.delete('/account', verifyToken, deleteAccount);
 router.delete('/delete-account', verifyToken, deleteAccount);
 router.post('/delete-account', verifyToken, deleteAccount);
+
+// 🟢 Notifications & Offers Endpoint
+router.get('/notifications', verifyToken, getCustomerNotifications);
 
 // 🟢 Saved Places Endpoints
 router.get('/saved-places', verifyToken, getSavedPlaces);

@@ -130,4 +130,97 @@ const notifyCustomerGeneric = async (customerId, title, body, type = 'update') =
     }
 };
 
-module.exports = { notifyNearbyDrivers, notifyCustomer, notifyCustomerGeneric };
+// 🟢 4. SEND CUSTOM BROADCAST NOTIFICATION (Admin to All, Customers, or Drivers)
+const sendBroadcastNotification = async ({
+    title,
+    message,
+    target = "ALL", // "ALL" | "CUSTOMERS" | "DRIVERS"
+    category = "FESTIVAL_OFFER",
+    discountCode = "",
+    discountPercent = 0,
+    actionUrl = ""
+}) => {
+    let tokens = [];
+
+    try {
+        if (target === "CUSTOMERS" || target === "ALL") {
+            const customers = await Customer.find({
+                isActive: { $ne: false },
+                pushToken: { $ne: "", $exists: true }
+            }).select("pushToken");
+            customers.forEach((c) => {
+                if (c.pushToken && Expo.isExpoPushToken(c.pushToken)) {
+                    tokens.push(c.pushToken);
+                }
+            });
+        }
+
+        if (target === "DRIVERS" || target === "ALL") {
+            const drivers = await Driver.find({
+                status: "APPROVED",
+                pushToken: { $ne: "", $exists: true }
+            }).select("pushToken");
+            drivers.forEach((d) => {
+                if (d.pushToken && Expo.isExpoPushToken(d.pushToken)) {
+                    tokens.push(d.pushToken);
+                }
+            });
+        }
+
+        // Deduplicate tokens
+        const uniqueTokens = [...new Set(tokens)];
+        let successCount = 0;
+        let failureCount = 0;
+
+        if (uniqueTokens.length > 0) {
+            const pushMessages = uniqueTokens.map((token) => ({
+                to: token,
+                sound: "default",
+                title: title,
+                body: message,
+                data: {
+                    type: "custom_broadcast",
+                    category,
+                    discountCode,
+                    discountPercent,
+                    actionUrl,
+                },
+                priority: "high",
+                channelId: "default",
+            }));
+
+            const chunks = expo.chunkPushNotifications(pushMessages);
+            for (const chunk of chunks) {
+                try {
+                    const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+                    ticketChunk.forEach((ticket) => {
+                        if (ticket.status === "ok") {
+                            successCount++;
+                        } else {
+                            failureCount++;
+                        }
+                    });
+                } catch (chunkErr) {
+                    console.error("❌ Error sending broadcast chunk:", chunkErr);
+                    failureCount += chunk.length;
+                }
+            }
+        }
+
+        return {
+            totalRecipients: uniqueTokens.length,
+            successCount,
+            failureCount,
+        };
+    } catch (error) {
+        console.error("❌ Broadcast notification error:", error);
+        throw error;
+    }
+};
+
+module.exports = { 
+    notifyNearbyDrivers, 
+    notifyCustomer, 
+    notifyCustomerGeneric,
+    sendBroadcastNotification 
+};

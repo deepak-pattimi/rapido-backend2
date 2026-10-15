@@ -1,6 +1,7 @@
 const Customer = require('../models/Customer');
 const Ride = require('../models/Ride');
 const Otp = require('../models/Otp');
+const Notification = require('../models/Notification');
 
 // 🟢 GET PROFILE
 exports.getProfile = async (req, res) => {
@@ -129,6 +130,21 @@ exports.deleteSavedPlace = async (req, res) => {
         await customer.save();
 
         res.json({ success: true, savedPlaces: customer.savedPlaces });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// 🟢 GET BROADCAST NOTIFICATIONS (Promos, Festival offers, Announcements)
+exports.getCustomerNotifications = async (req, res) => {
+    try {
+        const notifications = await Notification.find({
+            target: { $in: ["ALL", "CUSTOMERS"] }
+        })
+        .sort({ createdAt: -1 })
+        .limit(30);
+
+        res.json({ success: true, notifications });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

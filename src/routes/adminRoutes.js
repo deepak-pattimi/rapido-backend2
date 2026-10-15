@@ -12,6 +12,10 @@ const {
   deleteDriver,
   getDriverRides,
   getLogs,
+  getNotifications,
+  sendCustomNotification,
+  deleteNotification,
+  getAudienceStats,
 } = require("../controllers/adminController");
 
 router.use(verifyAdminSecret);
@@ -27,5 +31,11 @@ router.patch("/drivers/:id", updateDriver);
 router.delete("/drivers/:id", deleteDriver);
 router.get("/drivers/:id/rides", getDriverRides);
 router.get("/logs", getLogs);
+
+// 🔔 Broadcast Notifications Endpoints
+router.get("/notifications", getNotifications);
+router.post("/notifications/send", sendCustomNotification);
+router.delete("/notifications/:id", deleteNotification);
+router.get("/notifications/audience-stats", getAudienceStats);
 
 module.exports = router;
