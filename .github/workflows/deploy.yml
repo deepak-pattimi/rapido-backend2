@@ -1,69 +1,43 @@
-name: Deploy Backend to Hostinger VPS
-
+name: KVM 1 CI and deployment
 on:
   push:
-    branches:
-      - master
-      - main
+    branches: [master]
+  pull_request:
+    branches: [master]
   workflow_dispatch:
-
+permissions:
+  contents: read
 jobs:
-  deploy:
+  validate:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 15
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Deploy to Hostinger via SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          host: ${{ secrets.HOSTINGER_HOST }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          password: ${{ secrets.HOSTINGER_PASSWORD }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY || '' }}
-          port: ${{ secrets.HOSTINGER_PORT || 22 }}
-          script: |
-            # 1. Load shell environment & paths (nvm, node, npm, pm2)
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-            [ -s "$HOME/.bashrc" ] && source "$HOME/.bashrc"
-            [ -s "$HOME/.profile" ] && source "$HOME/.profile"
-            export PATH=$PATH:/usr/local/bin:/usr/bin:/bin:$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node 2>/dev/null | tail -n 1)/bin
-
-            echo "=== Checking Node and PM2 Environment ==="
-            which node || true
-            which pm2 || true
-            node -v || true
-
-            # 2. Locate and enter backend project directory
-            if [ -d "/var/www/inryde-backend/rapido-backend2" ]; then
-              cd /var/www/inryde-backend/rapido-backend2
-            elif [ -d "/var/www/inryde-backend" ]; then
-              cd /var/www/inryde-backend
-            elif [ -d "$HOME/rapido-backend2" ]; then
-              cd "$HOME/rapido-backend2"
-            else
-              echo "Error: Backend directory not found!"
-              exit 1
-            fi
-
-            echo "=== Working in directory: $(pwd) ==="
-
-            # 3. Pull latest changes safely from GitHub
-            git fetch origin master
-            git reset --hard origin/master
-
-            # 4. Install dependencies
-            npm install --omit=dev
-
-            # 5. Reload or start PM2 process
-            pm2 reload ecosystem.config.js --env production || \
-            pm2 restart inryde-backend || \
-            pm2 restart rapido-backend || \
-            pm2 start ecosystem.config.js --env production || \
-            pm2 start src/server.js --name "inryde-backend"
-
-            # 6. Save PM2 list
-            pm2 save
-            echo "=== Backend successfully updated and restarted! ==="
+          node-version: '20.20.2'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node ops/check-syntax.cjs
+      - run: bash -n ops/kvm1-deploy.sh
+  deploy:
+    needs: validate
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: kvm1-production
+      cancel-in-progress: false
+    steps:
+      - name: Deploy tested commit and verify health
+        env:
+          DEPLOY_KEY: ${{ secrets.KVM1_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.KVM1_KNOWN_HOSTS }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/kvm1
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/kvm1' EXIT
+          ssh -i ~/.ssh/kvm1 -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=6 root@200.234.34.174 "deploy $COMMIT_SHA"
