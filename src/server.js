@@ -90,7 +90,7 @@ connectDB();
 app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
-    message: "INryde Backend is Live",
+    message: "Inryde Backend is Live",
   });
 });
 

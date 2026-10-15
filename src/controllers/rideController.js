@@ -148,11 +148,33 @@ exports.completeRide = asyncHandler(async (req, res) => {
 
 exports.getRideHistory = asyncHandler(async (req, res) => {
     if (req.user.id !== req.params.userId) return res.status(403).json({ success: false, error: "Unauthorized access" });
-    const history = await Ride.find({ customerId: req.params.userId })
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 50));
+    const skip = (page - 1) * limit;
+    const category = (req.query.category || "ALL").toUpperCase();
+
+    const query = { customerId: req.params.userId };
+    if (category === "RIDES") {
+      query.isParcel = { $ne: true };
+    } else if (category === "PARCELS") {
+      query.isParcel = true;
+    } else if (category === "COMPLETED") {
+      query.status = "COMPLETED";
+    } else if (category === "CANCELLED") {
+      query.status = "CANCELLED";
+    }
+
+    const [history, total] = await Promise.all([
+      Ride.find(query)
         .populate("driverId", "licenseNumber")
         .sort({ createdAt: -1 })
-        .limit(20);
-    res.json({ success: true, history });
+        .skip(skip)
+        .limit(limit),
+      Ride.countDocuments(query),
+    ]);
+    const totalPages = Math.ceil(total / limit) || 1;
+    const hasMore = skip + history.length < total;
+    res.json({ success: true, history, page, limit, total, totalPages, hasMore });
   });
 
 exports.bookRide = asyncHandler(async (req, res) => {
@@ -187,7 +209,13 @@ exports.bookRide = asyncHandler(async (req, res) => {
     const isScheduledBooking = req.body.isScheduled === true || req.body.isScheduled === "true";
     const rideStatus = isScheduledBooking ? "SCHEDULED" : "REQUESTED";
 
+    const now = new Date();
+    const dateStr = now.toISOString().slice(2, 10).replace(/-/g, "");
+    const randSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const customOrderId = 'INR-' + dateStr + '-' + randSuffix;
+
     const newRide = await Ride.create({
+      customOrderId,
       customerId,
       pickup: { address: pickupAddress, coordinates: [pickup.longitude, pickup.latitude] },
       dropoff: { address: dropAddress, coordinates: [drop.longitude, drop.latitude] },

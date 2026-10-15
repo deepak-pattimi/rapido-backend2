@@ -2,6 +2,9 @@ const mongoose = require("mongoose");
 
 const rideSchema = new mongoose.Schema(
   {
+    // 🏷️ Human-readable custom order ID (e.g., INR-261012-4B9C)
+    customOrderId: { type: String, unique: true, sparse: true, index: true },
+
     // 🔗 Foreign Keys linking to your other collections
     customerId: {
       type: mongoose.Schema.Types.ObjectId,
