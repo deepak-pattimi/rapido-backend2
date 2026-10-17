@@ -6,6 +6,21 @@ const { sendSMS } = require("../services/smsService.js");
 const Driver = require("../models/Driver");
 const Ride = require("../models/Ride");
 
+// App Store & Play Store Demo / Testing Credentials
+const DEMO_PHONE_NUMBERS = ["6301616598", "9999999999", "9876543210"];
+const DEMO_PASSWORD = "1234";
+
+const getTenDigits = (phone) => {
+  if (!phone) return "";
+  const rawDigits = phone.toString().replace(/[^\d]/g, "");
+  return rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
+};
+
+const isDemoPhone = (phone) => {
+  const tenDigits = getTenDigits(phone);
+  return DEMO_PHONE_NUMBERS.includes(tenDigits);
+};
+
 // 🟢 1. REQUEST OTP
 exports.requestOTP = async (req, res) => {
   try {
@@ -17,13 +32,14 @@ exports.requestOTP = async (req, res) => {
       cleanPhone = `+91${cleanPhone.replace(/[^\d]/g, '')}`;
     }
 
+    const tenDigits = getTenDigits(cleanPhone);
+    const isDemo = isDemoPhone(cleanPhone);
+
     let generatedOtp = Math.floor(1000 + Math.random() * 9000).toString();
 
-    // Play Store Reviewer Demo Account Bypass
-    const rawDigits = cleanPhone.replace(/[^\d]/g, '');
-    const tenDigits = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
-    if (tenDigits === '9999999999' || tenDigits === '9876543210') {
-      generatedOtp = '1234';
+    // App Store / Play Store Reviewer Demo Account Bypass
+    if (isDemo) {
+      generatedOtp = DEMO_PASSWORD;
     }
 
     // Save to DB
@@ -33,8 +49,17 @@ exports.requestOTP = async (req, res) => {
       { upsert: true, new: true },
     );
 
-    // Skip sending SMS for demo test account
-    if (tenDigits !== '9999999999' && tenDigits !== '9876543210') {
+    // Also persist with +91 format if cleanPhone had different representation
+    if (tenDigits) {
+      await Otp.findOneAndUpdate(
+        { phone: `+91${tenDigits}` },
+        { otp: generatedOtp, expiresAt: new Date() },
+        { upsert: true, new: true },
+      );
+    }
+
+    // Skip sending SMS for demo test accounts
+    if (!isDemo) {
       await sendSMS(cleanPhone, generatedOtp);
     }
 
@@ -56,18 +81,24 @@ exports.verifyOTP = async (req, res) => {
     }
 
     let cleanPhone = phone.toString().trim();
-    const rawDigits = cleanPhone.replace(/[^\d]/g, '');
-    const tenDigits = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
+    const tenDigits = getTenDigits(cleanPhone);
     const phoneVariants = [
       cleanPhone,
       `+91${tenDigits}`,
       tenDigits
     ];
 
-    // Find the OTP in our temp collection matching any phone variant
-    const otpRecord = await Otp.findOne({ phone: { $in: phoneVariants }, otp: otp.toString().trim() });
+    const isDemo = isDemoPhone(cleanPhone);
+    const enteredOtp = otp.toString().trim();
 
-    if (!otpRecord) {
+    // Find the OTP in our temp collection matching any phone variant
+    const otpRecord = await Otp.findOne({ phone: { $in: phoneVariants }, otp: enteredOtp });
+
+    // Allow App Store testing accounts with default password/OTP '1234'
+    // Even if OTP was expired or not pre-requested
+    const isDemoValid = isDemo && enteredOtp === DEMO_PASSWORD;
+
+    if (!otpRecord && !isDemoValid) {
       return res.status(400).json({ error: "Invalid or expired OTP. Please try again." });
     }
 
@@ -78,15 +109,20 @@ exports.verifyOTP = async (req, res) => {
 
     if (!customer) {
       isNew = true;
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(DEMO_PASSWORD, salt);
       customer = await Customer.create({
         phone: formattedPhone,
-        name: "Rider",
-        walletBalance: 0,
+        name: isDemo ? "App Store Reviewer" : "Rider",
+        password: hashedPassword,
+        walletBalance: isDemo ? 500 : 0,
       });
     }
 
-    // Delete the used OTP record
-    await Otp.deleteOne({ _id: otpRecord._id });
+    // Delete the used OTP record if present
+    if (otpRecord) {
+      await Otp.deleteOne({ _id: otpRecord._id });
+    }
 
     // Generate JWT Token
     const secretKey = process.env.JWT_SECRET || 'your_super_secret_jwt_key_rapido_2026qefiubkj';
@@ -251,22 +287,57 @@ exports.customerRegister = async (req, res) => {
 // 🟢 CUSTOMER LOGIN
 exports.customerLogin = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, phone, identifier, password } = req.body;
+    const loginId = (identifier || phone || email || "").toString().trim();
 
-    if (!email || !password) {
-      return res.status(400).json({ success: false, error: "Email and password are required." });
+    if (!loginId || !password) {
+      return res.status(400).json({ success: false, error: "Email or mobile number and password are required." });
     }
 
-    // Find the customer
-    const customer = await Customer.findOne({ email: email.trim().toLowerCase() });
-    if (!customer) {
-      return res.status(401).json({ success: false, error: "Invalid email or password." });
-    }
+    const tenDigits = getTenDigits(loginId);
+    const phoneVariants = [
+      loginId,
+      `+91${tenDigits}`,
+      tenDigits
+    ];
 
-    // Check password
-    const isMatch = await bcrypt.compare(password, customer.password);
-    if (!isMatch) {
-      return res.status(401).json({ success: false, error: "Invalid email or password." });
+    const isDemo = isDemoPhone(loginId);
+    const enteredPassword = password.toString().trim();
+
+    // Find the customer by email or phone
+    let customer = await Customer.findOne({
+      $or: [
+        { email: loginId.toLowerCase() },
+        { phone: { $in: phoneVariants } }
+      ]
+    });
+
+    if (isDemo && enteredPassword === DEMO_PASSWORD) {
+      // Demo tester bypass for password login
+      if (!customer) {
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(DEMO_PASSWORD, salt);
+        customer = await Customer.create({
+          phone: `+91${tenDigits}`,
+          name: "App Store Reviewer",
+          password: hashedPassword,
+          walletBalance: 500,
+        });
+      }
+    } else {
+      if (!customer) {
+        return res.status(401).json({ success: false, error: "Invalid email or password." });
+      }
+
+      if (!customer.password) {
+        return res.status(401).json({ success: false, error: "Password not set for this account. Please login with OTP." });
+      }
+
+      // Check password
+      const isMatch = await bcrypt.compare(enteredPassword, customer.password);
+      if (!isMatch) {
+        return res.status(401).json({ success: false, error: "Invalid email or password." });
+      }
     }
 
     // Generate JWT Token
@@ -283,7 +354,7 @@ exports.customerLogin = async (req, res) => {
       user: {
         id: customer._id,
         name: customer.name,
-        email: customer.email,
+        email: customer.email || "",
         phone: customer.phone,
       },
     });
